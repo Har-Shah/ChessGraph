@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS positions (
     features           TEXT
 );
 
+CREATE TABLE IF NOT EXISTS move_themes (
+    game_id        TEXT NOT NULL,
+    ply            INTEGER NOT NULL,
+    theme          TEXT NOT NULL,
+    material_swing INTEGER,
+    refutation_san TEXT,
+    PRIMARY KEY (game_id, ply, theme)
+);
+
 -- "which openings does this player play as White?"
 CREATE INDEX IF NOT EXISTS ix_games_subject ON games(subject, subject_color);
 -- "all games in the Alekhine" / opening-prediction eval
@@ -102,6 +111,9 @@ CREATE INDEX IF NOT EXISTS ix_moves_poskey  ON moves(pos_key);
 CREATE INDEX IF NOT EXISTS ix_moves_game    ON moves(game_id, ply);
 CREATE INDEX IF NOT EXISTS ix_pos_opening   ON positions(opening);
 CREATE INDEX IF NOT EXISTS ix_pos_phase     ON positions(phase);
+-- "rank this player's recurring weaknesses" <- drives the whole report
+CREATE INDEX IF NOT EXISTS ix_themes_theme  ON move_themes(theme);
+CREATE INDEX IF NOT EXISTS ix_themes_move   ON move_themes(game_id, ply);
 """
 
 
@@ -181,6 +193,8 @@ class Store:
                 "SELECT COUNT(*) c FROM moves WHERE cp_loss IS NOT NULL")["c"],
             "subjects": [r["subject"] for r in self.q(
                 "SELECT DISTINCT subject FROM games WHERE subject IS NOT NULL")],
+            "themed_moves": self.one(
+                "SELECT COUNT(DISTINCT game_id || ply) c FROM move_themes")["c"],
         }
 
     def close(self):
