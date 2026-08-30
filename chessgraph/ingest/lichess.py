@@ -9,7 +9,7 @@ Why the API and not the Open Database dump?
 
 Rate limits: anonymous requests are throttled to roughly 20 games/second and
 will return HTTP 429 if you hammer them. We stream, we set a real User-Agent,
-and we back off on 429. Be a good citizen — this is a free public service.
+and we back off on 429. Be a good citizen. This is a free public service.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _get(url: str, *, params: dict | None = None, stream: bool = False,
 
 
 def fetch_player_profile(username: str) -> dict:
-    """Ratings, game counts, account flags. Cheap — one small JSON."""
+    """Ratings, game counts, account flags. Cheap, one small JSON."""
     resp = _get(f"{API}/user/{username}", accept="application/json")
     return resp.json()
 
@@ -128,14 +128,14 @@ def download_player_games(
     out = RAW / f"{username.lower()}.pgn"
     if out.exists() and not force:
         size_kb = out.stat().st_size / 1024
-        print(f"  cached: {out.name} ({size_kb:.0f} KB) — pass force=True to refresh")
+        print(f"  cached: {out.name} ({size_kb:.0f} KB), pass force=True to refresh")
         return out
 
     print(f"  downloading up to {max_games} games for {username}...")
     written = 0
     games_seen = 0
-    # Client-side cap. The server's `max` parameter is advisory in practice —
-    # an observed request for 25 games came back with 36 — and an experiment
+    # Client-side cap. The server's `max` parameter is advisory in practice , 
+    # an observed request for 25 games came back with 36, and an experiment
     # whose corpus size depends on server behaviour is not reproducible. We
     # count [Event tags as they stream past and stop ourselves. This also caps
     # bandwidth rather than downloading-then-discarding.

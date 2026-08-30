@@ -5,7 +5,7 @@ Why SQLite and not Postgres/Neo4j for the facts layer?
   few tens of MB. SQLite handles it with zero operational overhead, it is a
   single file you can copy or delete to reset an experiment, and it gives us
   real indexes and joins. The knowledge graph (Phase 3) is built ON TOP of this
-  table — the graph is a *view* optimised for traversal, not a second source of
+  table, the graph is a *view* optimised for traversal, not a second source of
   truth. Keeping one authoritative store and deriving the graph from it means
   the two can never disagree.
 

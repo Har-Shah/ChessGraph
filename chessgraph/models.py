@@ -3,9 +3,9 @@
 The shape of these three objects determines what questions the system can
 answer, so they are worth thinking about carefully.
 
-GAME   — one played game. Metadata only; the moves live in MoveRecords.
-MOVE   — one ply. This is the unit of *behaviour*: a player made a choice here.
-POSITION — a board state, deduplicated across every game in the corpus.
+GAME  , one played game. Metadata only; the moves live in MoveRecords.
+MOVE  , one ply. This is the unit of *behaviour*: a player made a choice here.
+POSITION, a board state, deduplicated across every game in the corpus.
 
 The Move/Position split is the crux. A naive design stores moves inside games
 and stops there, which can only answer "what happened in game X". By promoting
@@ -74,7 +74,7 @@ class MoveRecord:
     game_id: str
     ply: int                   # 1-based; ply 1 is White's first move
     move_number: int           # chess move number (1. e4 e5 -> both are 1)
-    color: str                 # "white" | "black" — who is moving
+    color: str                 # "white" | "black", who is moving
     san: str                   # "Nf3"
     uci: str                   # "g1f3"
     fen_before: str            # full FEN of the position being moved from

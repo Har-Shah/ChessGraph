@@ -1,6 +1,6 @@
 """Persistent cache for engine evaluations.
 
-Engine analysis is by far the most expensive thing this system does — roughly
+Engine analysis is by far the most expensive thing this system does, roughly
 50-200ms per position, and a 500-game corpus has ~40,000 positions. That is 30+
 minutes of CPU you do not want to repeat every time you tweak a report.
 

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 RAW = DATA / "raw"       # downloaded PGN, untouched
 DB = DATA / "db"         # sqlite files
-CACHE = DATA / "cache"   # engine evals, embeddings — expensive to recompute
+CACHE = DATA / "cache"   # engine evals, embeddings, expensive to recompute
 
 for _p in (RAW, DB, CACHE):
     _p.mkdir(parents=True, exist_ok=True)
@@ -41,7 +41,7 @@ class EngineConfig:
 
     `depth` is the main quality/time dial. Depth 12 is ~50ms per position and
     is enough to catch blunders reliably; depth 18+ is for verifying a single
-    critical position. `multipv` = how many candidate moves to return — we need
+    critical position. `multipv` = how many candidate moves to return, we need
     at least 2 so we can say "you played X, but Y was better."
     """
     path: str = field(default_factory=_find_stockfish)
@@ -61,8 +61,8 @@ class EngineConfig:
 class IngestConfig:
     """Limits on what we pull down."""
     max_games: int = 500
-    # Lichess variants/speeds we care about. Bullet games are noisy — mistakes
-    # there are time pressure, not misunderstanding — so default to slower ones.
+    # Lichess variants/speeds we care about. Bullet games are noisy, mistakes
+    # there are time pressure, not misunderstanding, so default to slower ones.
     perf_types: tuple[str, ...] = ("blitz", "rapid", "classical")
     rated_only: bool = True
 
@@ -75,7 +75,7 @@ class AnalysisConfig:
     fine but slow on first run, so `max_ply` lets you cut games short. Opening
     prep questions mostly live in the first 30 moves anyway.
     """
-    skip_opening_plies: int = 8    # book moves — no useful mistakes here
+    skip_opening_plies: int = 8    # book moves, no useful mistakes here
     max_ply: int = 60              # ~move 30 for each side
     min_ply_for_mistake: int = 8
 

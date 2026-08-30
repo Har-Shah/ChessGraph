@@ -1,6 +1,6 @@
 """Second analysis pass: label every mistake with tactical themes.
 
-Runs AFTER the Stockfish pass, and needs no engine of its own — it reuses the
+Runs AFTER the Stockfish pass, and needs no engine of its own, it reuses the
 principal variations already sitting in the eval cache.
 
 The join that makes this work:

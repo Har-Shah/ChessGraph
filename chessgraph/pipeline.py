@@ -61,7 +61,7 @@ def ingest_player(
     console.print(f"  {len(games)} games, {total_moves} moves")
 
     if not games:
-        console.print("[red]  no games parsed — check the username[/]")
+        console.print("[red]  no games parsed, check the username[/]")
         return {"games": 0}
 
     # --- 3. analyse -------------------------------------------------------

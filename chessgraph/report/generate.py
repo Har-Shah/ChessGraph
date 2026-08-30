@@ -133,12 +133,22 @@ def _citations_for_moves(store: Store, rows, limit: int = 3) -> list[Citation]:
 def build_report(store: Store, subject: str, kg: ChessKnowledgeGraph | None = None,
                  *, top_openings: int = 5, top_weaknesses: int = 5,
                  training_count: int = 12,
+                 max_abs_eval_before: int = 300,
                  game_ids: set[str] | None = None) -> PrepReport:
     """Assemble the full preparation report from the store and graph.
 
     `game_ids` restricts the report to a subset, which the held-out evaluation
     uses to build a report from training games only and then test its claims
     against future games.
+
+    `max_abs_eval_before` is a teaching-quality filter, not a statistical one.
+    Ranking examples purely by centipawn loss surfaces moves played in already
+    decided positions, where someone two pieces down shuffles into mate. Those
+    have the largest losses and the least to teach. Restricting cited examples
+    to positions still within 3 pawns of level means every example is a move
+    that actually cost a playable game. Aggregate counts and averages are
+    computed over ALL mistakes and are unaffected; only which instances get
+    cited and drilled changes.
     """
     kg = kg or ChessKnowledgeGraph.build(store, subject)
     scope = ""
@@ -238,9 +248,10 @@ def build_report(store: Store, subject: str, kg: ChessKnowledgeGraph | None = No
                 FROM move_themes t
                 JOIN moves m ON m.game_id = t.game_id AND m.ply = t.ply
                 JOIN games g ON g.game_id = m.game_id
-                WHERE g.subject = ? AND m.is_subject_move = 1 AND t.theme = ?{scope}
+                WHERE g.subject = ? AND m.is_subject_move = 1 AND t.theme = ?
+                  AND ABS(COALESCE(m.eval_before_cp, 0)) <= ?{scope}
                 ORDER BY m.cp_loss DESC LIMIT 3""",
-            (subject, r["theme"], *params[1:]))
+            (subject, r["theme"], max_abs_eval_before, *params[1:]))
         label = THEME_LABEL.get(r["theme"], r["theme"].replace("_", " "))
         sec.claims.append(Claim(
             text=(f"{label.capitalize()}: {r['n']} occurrences, "
@@ -275,9 +286,10 @@ def build_report(store: Store, subject: str, kg: ChessKnowledgeGraph | None = No
                        m.best_move_san, m.cp_loss, m.fen_before, g.url, g.date
                 FROM moves m JOIN games g ON g.game_id = m.game_id
                 WHERE g.subject = ? AND m.is_subject_move = 1
-                  AND g.opening = ? AND m.cp_loss >= 100{scope}
+                  AND g.opening = ? AND m.cp_loss >= 100
+                  AND ABS(COALESCE(m.eval_before_cp, 0)) <= ?{scope}
                 ORDER BY m.cp_loss DESC LIMIT 3""",
-            (subject, r["opening"], *params[1:]))
+            (subject, r["opening"], max_abs_eval_before, *params[1:]))
         sec.claims.append(Claim(
             text=(f"{r['opening']}: {round(r['acpl'], 1)} average centipawn loss "
                   f"across {r['games']} games."),
@@ -294,9 +306,10 @@ def build_report(store: Store, subject: str, kg: ChessKnowledgeGraph | None = No
                    g.url, g.date, g.opening
             FROM moves m JOIN games g ON g.game_id = m.game_id
             WHERE g.subject = ? AND m.is_subject_move = 1
-              AND m.cp_loss >= 200 AND m.best_move_san IS NOT NULL{scope}
+              AND m.cp_loss >= 200 AND m.best_move_san IS NOT NULL
+              AND ABS(COALESCE(m.eval_before_cp, 0)) <= ?{scope}
             ORDER BY m.cp_loss DESC""",
-        (subject, *params[1:]))
+        (subject, max_abs_eval_before, *params[1:]))
     seen_pos: set[str] = set()
     for r in train_rows:
         if len(report.training_positions) >= training_count:

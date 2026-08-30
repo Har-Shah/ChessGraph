@@ -1,6 +1,6 @@
 """Stockfish analysis: evaluate positions, score mistakes, suggest better moves.
 
-THE CENTRAL IDEA — how you measure a mistake
+THE CENTRAL IDEA, how you measure a mistake
 --------------------------------------------
 An engine evaluation is always *from the perspective of the side to move*.
 "+0.5" after 1.e4 means "good for White"; the same +0.5 after 1...e5 means
@@ -24,10 +24,10 @@ reads the loss off *consecutive* evaluations:
 
     centipawn loss = e[i] - (-e[i+1]) = e[i] + e[i+1]
 
-A game of N moves needs N+1 evaluations, not 2N — and the sign convention
+A game of N moves needs N+1 evaluations, not 2N, and the sign convention
 collapses into a single addition, which is much harder to get wrong.
 
-CLAMPING — why we cap evals at +/-1000
+CLAMPING, why we cap evals at +/-1000
 --------------------------------------
 Raw centipawns are a terrible loss scale at the extremes. Going from "mate in
 3" to "mate in 8" is a 0-centipawn practical difference (still winning) but
@@ -63,6 +63,7 @@ class PositionEval:
     pv: str
     alternatives: list[dict]
     terminal: bool = False       # checkmate or stalemate: nothing to play
+    failed: bool = False         # engine could not analyse this position
 
     def clamped_cp(self) -> int:
         """A single comparable number, mates folded in."""
@@ -97,13 +98,18 @@ class Analyzer:
         self.cache = cache if cache is not None else EvalCache()
         self._engine: chess.engine.SimpleEngine | None = None
         self.nodes_searched = 0
+        self.engine_crashes = 0
+        self.crashed_positions: list[str] = []
 
-    def __enter__(self) -> "Analyzer":
+    def _start_engine(self) -> None:
         self._engine = chess.engine.SimpleEngine.popen_uci(self.config.path)
         self._engine.configure({
             "Threads": self.config.threads,
             "Hash": self.config.hash_mb,
         })
+
+    def __enter__(self) -> "Analyzer":
+        self._start_engine()
         return self
 
     def __exit__(self, *exc):
@@ -143,14 +149,47 @@ class Analyzer:
                 alternatives=cached["alternatives"],
             )
 
+        if not board.is_valid():
+            # Stockfish segfaults on illegal positions rather than rejecting
+            # them, so validate before handing anything over. Real game data is
+            # always legal; this catches hand-built FENs and construction bugs.
+            return PositionEval(key, None, None, None, None, "", [], failed=True)
+
         if self._engine is None:
             raise RuntimeError("Analyzer must be used as a context manager")
 
-        infos = self._engine.analyse(
-            board,
-            chess.engine.Limit(depth=depth),
-            multipv=self.config.multipv,
-        )
+        # Defence in depth against the engine dying mid-run. The known trigger
+        # is an ILLEGAL position: Stockfish segfaults when handed one where the
+        # side not to move is in check, which the guard above already rejects.
+        # Positions parsed from real games are always legal, so this path
+        # should never fire on pipeline data. It exists because an engine can
+        # also die for reasons that have nothing to do with the position (the
+        # OS killing it under memory pressure, an external kill, a bad build),
+        # and losing a 17 minute analysis run to that would be avoidable pain.
+        # Restart once and retry; if it dies again, mark the position
+        # unanalysable and keep going.
+        infos = None
+        for attempt in range(2):
+            try:
+                infos = self._engine.analyse(
+                    board,
+                    chess.engine.Limit(depth=depth),
+                    multipv=self.config.multipv,
+                )
+                break
+            except chess.engine.EngineTerminatedError:
+                self.engine_crashes += 1
+                self.crashed_positions.append(board.fen())
+                try:
+                    self._start_engine()
+                except Exception:
+                    raise
+        if infos is None:
+            # Reproducible crash on this position. Return a failed marker so
+            # annotate_game leaves the surrounding moves unscored rather than
+            # silently treating the position as equal.
+            return PositionEval(key, None, None, None, None, "", [], failed=True)
+
         if isinstance(infos, dict):       # multipv=1 returns a bare dict
             infos = [infos]
 
@@ -219,6 +258,11 @@ class Analyzer:
 
         for i, m in enumerate(window):
             before, after = evals[i], evals[i + 1]
+            if before.failed or after.failed:
+                # No trustworthy evaluation on one side of this move, so any
+                # loss we computed would be fiction. Leave it unscored.
+                m.judgment = "unanalysed"
+                continue
             m.eval_before_cp = before.score_cp
             m.mate_in = before.mate
             m.best_move_uci = before.best_uci
@@ -251,7 +295,7 @@ def classify_loss(cp_loss: int | None, cfg: EngineConfig = ENGINE) -> str:
     """Bucket a centipawn loss into a human label.
 
     Thresholds match Lichess's, so our labels are directly comparable to the
-    public annotations on the site — which matters for evaluation, where we
+    public annotations on the site, which matters for evaluation, where we
     want to check our numbers against an independent source.
     """
     if cp_loss is None:
@@ -267,7 +311,7 @@ def classify_loss(cp_loss: int | None, cfg: EngineConfig = ENGINE) -> str:
 
 def average_cp_loss(moves: Iterable[MoveRecord], *, color: str | None = None,
                     subject_only: bool = False, min_ply: int | None = None) -> float:
-    """ACPL — the standard single-number strength proxy.
+    """ACPL, the standard single-number strength proxy.
 
     Excludes book moves by default so opening theory does not flatter the
     number. Typical values: <20 grandmaster, 20-40 strong club player,

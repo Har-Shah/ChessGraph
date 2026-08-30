@@ -24,10 +24,13 @@ def derive_speed(time_control: str | None) -> str | None:
     """Map a PGN TimeControl to Lichess's speed buckets.
 
     Lichess classifies by *estimated game duration* = base + 40 * increment,
-    not by base time alone. A 1+2 game is blitz, not bullet, because those two
-    seconds per move add up over 40 moves. Getting this right matters: bullet
-    blunders are time-pressure artefacts and should usually be excluded from a
-    weakness analysis, so misfiling 1+2 as bullet would silently drop real data.
+    not by base time alone. The increment matters: 1+3 is blitz (60 + 120 = 180)
+    while 1+2 is bullet (60 + 80 = 140), and 3+2 is blitz at 260 seconds.
+
+    Getting this right matters because bullet blunders are time-pressure
+    artefacts rather than gaps in understanding, and are excluded from weakness
+    analysis by default. Classifying on base time alone would misfile every
+    incremented game and silently move real data in or out of the corpus.
     """
     if not time_control or time_control in ("-", "?"):
         return None
@@ -52,7 +55,7 @@ def classify_phase(board: chess.Board) -> str:
 
     Standard heuristic: count non-pawn, non-king material. Fewer than ~7 such
     pieces on the board means endgame. Before move 12 with most pieces home,
-    call it opening. This is coarse on purpose — it is a filter, not a claim.
+    call it opening. This is coarse on purpose. It is a filter, not a claim.
     """
     pieces = board.piece_map()
     heavy = sum(

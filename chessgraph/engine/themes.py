@@ -4,7 +4,7 @@ WHY THIS MODULE IS THE HARD PART
 --------------------------------
 "Player struggles with X" is only useful if X is a real, checkable category.
 Most projects fake this by asking an LLM to name the theme, which produces
-plausible labels that cannot be verified and do not aggregate — you get 200
+plausible labels that cannot be verified and do not aggregate, you get 200
 slightly different phrasings of "tactical oversight" and can never count them.
 
 So every detector here is *mechanical*: it inspects the board with python-chess
@@ -15,7 +15,7 @@ That means the labels are:
   - falsifiable (you can open the position and check we were right)
 
 The method: when a player blunders, the engine tells us the refutation. We play
-out that refutation line and ask two questions —
+out that refutation line and ask two questions , 
   1. What did it COST? (material swing over the forced sequence)
   2. HOW did it work? (geometry of the refuting move: fork, pin, discovery...)
 Question 2 is the theme. Question 1 is the severity.
@@ -30,7 +30,7 @@ PIECE_VALUE = {
     chess.PAWN: 100, chess.KNIGHT: 300, chess.BISHOP: 320,
     chess.ROOK: 500, chess.QUEEN: 900, chess.KING: 0,
 }
-# A "valuable" target for fork purposes — forking two pawns is not a theme.
+# A "valuable" target for fork purposes, forking two pawns is not a theme.
 FORK_TARGETS = (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING)
 
 
@@ -59,7 +59,7 @@ def _detect_fork(board_after_refutation: chess.Board, to_square: int,
     """The refuting piece now attacks two or more valuable enemy units.
 
     Note we check attacks FROM the landing square only. A piece that happened
-    to already attack two things is not a fork — the fork is created by this
+    to already attack two things is not a fork. The fork is created by this
     move arriving on this square.
     """
     attacked = []
@@ -76,7 +76,7 @@ def _detect_pin_or_skewer(board: chess.Board, to_square: int,
 
     Pin vs skewer is decided by which is worth more: if the FRONT piece is
     worth less than the one behind it, the front one is pinned; if the front
-    one is worth more, it is a skewer. This distinction matters to a student —
+    one is worth more, it is a skewer. This distinction matters to a student , 
     they are different things to practise.
     """
     piece = board.piece_at(to_square)
@@ -201,16 +201,16 @@ def detect_themes(fen_before: str, played_uci: str, refutation_pv: str,
                   cp_loss: int | None = None) -> ThemeResult:
     """Classify one blunder.
 
-    fen_before     — position the blunderer moved from
-    played_uci     — the move they actually played
-    refutation_pv  — engine PV from the resulting position (space-separated UCI)
-    cp_loss        — engine-measured severity, if known. Needed to separate
+    fen_before    , position the blunderer moved from
+    played_uci    , the move they actually played
+    refutation_pv , engine PV from the resulting position (space-separated UCI)
+    cp_loss       , engine-measured severity, if known. Needed to separate
                      "lost material" from "won material and lost the game",
                      which look identical on a material count alone.
 
     material_swing convention: POSITIVE means the blunderer LOST material.
     A negative swing on a move the engine hates means they grabbed material
-    and walked into something — a sacrifice accepted, not a piece dropped.
+    and walked into something, a sacrifice accepted, not a piece dropped.
     """
     board = chess.Board(fen_before)
     blunderer = board.turn
@@ -301,7 +301,7 @@ def detect_themes(fen_before: str, played_uci: str, refutation_pv: str,
         detail["material_gained"] = -material_swing
 
     if not themes:
-        # Positional error: no material lost, no motif — the move just made the
+        # Positional error: no material lost, no motif, the move just made the
         # position worse. Honest label rather than a made-up tactical one.
         themes.append("positional_error")
 
