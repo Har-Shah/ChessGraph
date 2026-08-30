@@ -197,12 +197,20 @@ def _detect_hanging(board_after_blunder: chess.Board,
 
 # ------------------------------------------------------------------- main API
 def detect_themes(fen_before: str, played_uci: str, refutation_pv: str,
-                  *, phase: str = "middlegame") -> ThemeResult:
+                  *, phase: str = "middlegame",
+                  cp_loss: int | None = None) -> ThemeResult:
     """Classify one blunder.
 
     fen_before     — position the blunderer moved from
     played_uci     — the move they actually played
     refutation_pv  — engine PV from the resulting position (space-separated UCI)
+    cp_loss        — engine-measured severity, if known. Needed to separate
+                     "lost material" from "won material and lost the game",
+                     which look identical on a material count alone.
+
+    material_swing convention: POSITIVE means the blunderer LOST material.
+    A negative swing on a move the engine hates means they grabbed material
+    and walked into something — a sacrifice accepted, not a piece dropped.
     """
     board = chess.Board(fen_before)
     blunderer = board.turn
@@ -283,6 +291,14 @@ def detect_themes(fen_before: str, played_uci: str, refutation_pv: str,
         themes.append("endgame_technique")
     if board.is_check():
         themes.append("king_safety")
+
+    # Won material but the evaluation collapsed anyway. This is a distinct and
+    # very common club-level weakness: taking whatever is offered without
+    # checking what it opens up. Without cp_loss these look exactly like a
+    # sound capture on the material count, which is why it is passed in.
+    if cp_loss is not None and cp_loss >= 100 and material_swing <= -100:
+        themes.append("accepts_unsound_sacrifice")
+        detail["material_gained"] = -material_swing
 
     if not themes:
         # Positional error: no material lost, no motif — the move just made the
