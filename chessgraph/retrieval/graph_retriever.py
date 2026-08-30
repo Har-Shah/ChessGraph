@@ -66,9 +66,24 @@ class LinkedEntities:
 class GraphRetriever:
     name = "graph"
 
-    def __init__(self, graph: ChessKnowledgeGraph, subject: str | None = None):
+    def __init__(self, graph: ChessKnowledgeGraph, subject: str | None = None,
+                 expand_similar: bool = False, expand_k: int = 3,
+                 expand_decay: float = 0.5, name: str | None = None):
         self.kg = graph
         self.subject = subject or graph.subject
+        # One extra hop along `resembles` edges from the positions traversal
+        # already found. Off by default so the base graph result stays clean,
+        # and evaluated as a separate variant so the effect is measured rather
+        # than assumed. Expansion trades precision for recall by construction:
+        # a structurally similar position is related, but it is one step
+        # further from what was asked for, hence the score decay.
+        self.expand_similar = expand_similar
+        self.expand_k = expand_k
+        self.expand_decay = expand_decay
+        if name:
+            self.name = name
+        elif expand_similar:
+            self.name = "graph_plus_similarity"
         self.docs: list[Document] = []
         self.by_pos: dict[str, list[Document]] = defaultdict(list)
         self._entity_index: dict[str, list[tuple[str, str]]] = {}
@@ -225,6 +240,18 @@ class GraphRetriever:
                 independent.discard("family")
             if len(independent) >= 2:
                 combined[pos] += W_INTERSECTION * (len(independent) - 1)
+
+        if self.expand_similar:
+            # Snapshot first: expanding while iterating would let expansions
+            # seed further expansions and walk arbitrarily far from the query.
+            seeds = sorted(combined.items(), key=lambda kv: -kv[1])[:20]
+            for pos_node, base in seeds:
+                for nbr in self.kg.similar_positions(pos_node, k=self.expand_k):
+                    tgt = nbr["position"]
+                    if tgt in combined:
+                        continue
+                    combined[tgt] = base * self.expand_decay * (nbr["score"] or 0)
+                    support[tgt].append("similarity")
 
         ranked_positions = sorted(combined.items(), key=lambda kv: -kv[1])
 

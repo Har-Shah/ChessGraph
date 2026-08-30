@@ -227,6 +227,50 @@ class ChessGraphTools:
                 break
         return {"theme": theme or "any", "count": len(out), "positions": out}
 
+    def retrieve_similar_positions(self, fen: str = "", pos_key: str = "",
+                                   limit: int = 5,
+                                   cross_opening_only: bool = False) -> dict:
+        """Structurally similar positions from the player's own history.
+
+        Similarity is computed from pawn structure, material, king placement
+        and piece configuration, not from names or text. `cross_opening_only`
+        restricts results to a different opening family, which surfaces
+        transpositions that no metadata filter can find.
+        """
+        from chessgraph.models import position_key
+        from chessgraph.store.graph import position_node
+
+        limit = min(limit, MAX_RESULTS)
+        key = pos_key or (position_key(fen) if fen else "")
+        if not key:
+            return {"error": "supply a fen or a pos_key"}
+        node = position_node(key)
+        if node not in self.kg.g:
+            return {"error": "position not present in this player's graph",
+                    "pos_key": key}
+
+        found = (self.kg.similar_across_openings(node, k=limit)
+                 if cross_opening_only else
+                 self.kg.similar_positions(node, k=limit))
+
+        enriched = []
+        for r in found:
+            k = r["position"].split(":", 1)[1]
+            row = self.store.one(
+                """SELECT m.san, m.best_move_san, m.cp_loss, g.url, g.date,
+                          g.opening
+                   FROM moves m JOIN games g ON g.game_id = m.game_id
+                   WHERE m.pos_key = ? ORDER BY m.cp_loss DESC LIMIT 1""", (k,))
+            enriched.append({
+                **{kk: r[kk] for kk in ("score", "fen", "opening", "phase", "ply")},
+                "you_played": row["san"] if row else None,
+                "better_was": row["best_move_san"] if row else None,
+                "cp_loss": row["cp_loss"] if row else None,
+                "game": row["url"] if row else None,
+            })
+        return {"query_pos_key": key, "cross_opening_only": cross_opening_only,
+                "count": len(enriched), "similar": enriched}
+
     def build_opponent_report(self, opponent: str, limit: int = 5) -> dict:
         """Prep sheet for one opponent: repertoire, results, exploitable errors.
 

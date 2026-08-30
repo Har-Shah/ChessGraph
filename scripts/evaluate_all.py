@@ -79,9 +79,10 @@ def main(
 
         bm25, vec = BM25Retriever(), VectorRetriever()
         graph = GraphRetriever(kg, subject=subject)
-        for r in (bm25, vec, graph):
+        graph_sim = GraphRetriever(kg, subject=subject, expand_similar=True)
+        for r in (bm25, vec, graph, graph_sim):
             r.index(docs)
-        retrievers = [bm25, vec, graph,
+        retrievers = [bm25, vec, graph, graph_sim,
                       HybridRetriever([vec, graph], name="hybrid_vector_graph"),
                       HybridRetriever([bm25, vec, graph], name="hybrid_all")]
         retr_results = run_comparison(retrievers, queries, k=k)

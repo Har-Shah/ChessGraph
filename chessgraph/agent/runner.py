@@ -125,6 +125,23 @@ def build_tools(tools: ChessGraphTools) -> list:
         return tools.generate_training_positions(count=count, theme=theme)
 
     @beta_tool
+    def retrieve_similar_positions(fen: str = "", limit: int = 5,
+                                   cross_opening_only: bool = False) -> dict:
+        """Find positions structurally like this one in the player's history.
+
+        Matches on pawn structure, material and king placement rather than on
+        names, so it finds transpositions between differently named openings.
+
+        Args:
+            fen: The position to match, in Forsyth-Edwards Notation.
+            limit: Maximum results. At most 10.
+            cross_opening_only: Only return matches from a different opening
+                family. Use this to surface transpositions.
+        """
+        return tools.retrieve_similar_positions(
+            fen=fen, limit=limit, cross_opening_only=cross_opening_only)
+
+    @beta_tool
     def build_opponent_report(opponent: str, limit: int = 5) -> dict:
         """Prep sheet for one opponent: repertoire, results and exploitable errors.
 
@@ -135,8 +152,9 @@ def build_tools(tools: ChessGraphTools) -> list:
         return tools.build_opponent_report(opponent=opponent, limit=limit)
 
     return [fetch_player_games, analyze_position, retrieve_similar_games,
-            find_opening_weaknesses, find_recurring_themes,
-            generate_training_positions, build_opponent_report]
+            retrieve_similar_positions, find_opening_weaknesses,
+            find_recurring_themes, generate_training_positions,
+            build_opponent_report]
 
 
 def ask(subject: str, question: str, *, model: str = "claude-opus-5",

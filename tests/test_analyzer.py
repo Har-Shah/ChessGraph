@@ -3,12 +3,16 @@
 The sign convention is the single highest-risk piece of logic in the project,
 so it gets tested against positions where the answer is not a matter of opinion.
 """
+import tempfile
+from pathlib import Path
+
 import chess
 import pytest
 
 from chessgraph.engine.analyzer import (
     Analyzer, average_cp_loss, classify_loss, win_probability, CLAMP_CP,
 )
+from chessgraph.engine.cache import EvalCache
 from chessgraph.models import MoveRecord, position_key
 
 
@@ -131,18 +135,27 @@ def test_analyzer_recovers_when_the_engine_process_dies():
     have nothing to do with the position: the OS reclaiming memory, an
     external kill, a bad engine build.
     """
-    with Analyzer() as az:
-        first = az.evaluate(chess.Board(), depth=8)
-        assert first.best_san is not None
+    # A private cache, so every evaluation below actually reaches the engine.
+    # With the shared cache these positions are already stored and the recovery
+    # path is never exercised, which is how an earlier version of this test
+    # passed while testing nothing.
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = EvalCache(Path(tmp) / "evals.sqlite")
+        with Analyzer(cache=cache) as az:
+            board = chess.Board()
+            board.push_san("a3")
+            board.push_san("h6")
+            first = az.evaluate(board, depth=8)
+            assert first.best_san is not None
 
-        az._engine.close()          # simulate the process dying underneath us
+            az._engine.close()      # simulate the process dying underneath us
 
-        board = chess.Board()
-        board.push_san("e4")
-        recovered = az.evaluate(board, depth=8)
-        assert recovered.failed is False
-        assert recovered.best_san is not None
-        assert az.engine_crashes >= 1
+            board.push_san("b3")
+            recovered = az.evaluate(board, depth=8)
+            assert recovered.failed is False
+            assert recovered.best_san is not None
+            assert az.engine_crashes >= 1
+        # Leaving the context with a previously dead engine must not raise.
 
 
 @pytest.mark.slow

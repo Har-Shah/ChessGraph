@@ -114,7 +114,14 @@ class Analyzer:
 
     def __exit__(self, *exc):
         if self._engine is not None:
-            self._engine.quit()
+            try:
+                self._engine.quit()
+            except Exception:
+                # The engine may already be dead, in which case quit() raises
+                # EngineTerminatedError. Cleanup must not turn a successful run
+                # into a failure on the way out, and the process is gone either
+                # way, so there is nothing left to clean up.
+                pass
             self._engine = None
         self.cache.commit()
 
