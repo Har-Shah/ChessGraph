@@ -1,8 +1,16 @@
+# All generated data stays local. It contains real game history, real
+# opponent usernames, and game URLs. None of it is needed to reproduce the
+# results: every script regenerates its own outputs.
+data/
+
 .venv/
-data/raw/
-data/db/
-data/cache/
 __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
+
+# Never commit credentials.
+.env
+.env.*
+*.key
+secrets.*
