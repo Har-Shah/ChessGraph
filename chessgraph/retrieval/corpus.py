@@ -46,26 +46,33 @@ ORDINAL_COLOR = {"white": "as White", "black": "as Black"}
 def render_mistake(row, themes: list[str]) -> str:
     """Natural-language rendering of one mistake.
 
-    Written to be genuinely searchable rather than to look pretty. It repeats
-    the opening name, the family, the themes and the phase in plain words,
-    because those are the terms a real question will use. A FEN string is
-    included but contributes almost nothing to lexical matching, which is
-    itself part of what the experiment measures.
+    Themes and opening lead, then the move detail. Front-loading the
+    discriminative fields helps BM25 and costs nothing elsewhere.
+
+    A NOTE ON A HYPOTHESIS THAT DID NOT SURVIVE
+    An earlier version wrapped every field in a full sentence, and dense
+    retrieval performed badly on it. The suspicion was embedding collapse from
+    shared boilerplate: measured mean pairwise cosine was 0.809 across 3,790
+    documents. Rewriting to this denser form moved it to 0.819, which is to say
+    not at all. High absolute cosine is simply normal for bge-small on short
+    same-domain text, and absolute magnitude was the wrong thing to measure.
+    Relative ordering is what matters.
+
+    The real cause is recorded in `experiments/vocabulary_gap.py`: the model
+    does soft lexical matching, not conceptual mapping, so it cannot connect a
+    chess motif to its description unless they share ordinary English words.
     """
-    color = ORDINAL_COLOR.get(row["color"], row["color"])
-    opening = row["opening"] or "an unnamed opening"
-    family = (row["opening"] or "").split(":")[0].strip() or "unknown"
-    move_no = row["move_number"]
-    sev = row["judgment"] or "mistake"
     theme_txt = ", ".join(t.replace("_", " ") for t in themes) or "no tactical motif"
-    better = row["best_move_san"] or "a better move"
+    opening = row["opening"] or "unnamed opening"
+    family = (row["opening"] or "").split(":")[0].strip() or "unknown"
+    color = row["color"]
+    sev = row["judgment"] or "mistake"
+    better = row["best_move_san"] or "unknown"
     return (
-        f"{row['player']} playing {color} in the {opening} "
-        f"({family}, ECO {row['eco'] or 'unknown'}) reached a {row['phase']} "
-        f"position at move {move_no}. They played {row['san']}, a {sev} "
-        f"losing {row['cp_loss']} centipawns. {better} was stronger. "
-        f"Tactical themes: {theme_txt}. "
-        f"Position FEN {row['fen_before']}."
+        f"{theme_txt}. {opening}. {family}. "
+        f"{color} {sev} at move {row['move_number']}, {row['phase']} phase. "
+        f"Played {row['san']}, better was {better}, lost {row['cp_loss']} "
+        f"centipawns. ECO {row['eco'] or 'unknown'}. Player {row['player']}."
     )
 
 

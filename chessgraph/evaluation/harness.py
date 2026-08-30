@@ -82,15 +82,15 @@ def print_report(results: dict, queries: list[EvalQuery]) -> None:
 
     t = Table(title="Overall (mean across all queries)")
     t.add_column("retriever", style="bold")
-    for col in ("recall@5", "recall@10", "recall@20", "ndcg@10", "mrr", "hit@10"):
+    for col in ("recall@10", "recall@20", "precision@10", "ndcg@10", "mrr", "hit@10"):
         t.add_column(col, justify="right")
     t.add_column("ms/query", justify="right")
     t.add_column("empty", justify="right")
     for name, r in results.items():
         o = r["overall"]
         t.add_row(name,
-                  f"{o.get('recall@5', 0):.3f}", f"{o.get('recall@10', 0):.3f}",
-                  f"{o.get('recall@20', 0):.3f}", f"{o.get('ndcg@10', 0):.3f}",
+                  f"{o.get('recall@10', 0):.3f}", f"{o.get('recall@20', 0):.3f}",
+                  f"{o.get('precision@10', 0):.3f}", f"{o.get('ndcg@10', 0):.3f}",
                   f"{o.get('mrr', 0):.3f}", f"{o.get('hit@10', 0):.3f}",
                   f"{r['latency_ms_mean']:.1f}", str(r["empty_results"]))
     console.print(t)
@@ -99,10 +99,10 @@ def print_report(results: dict, queries: list[EvalQuery]) -> None:
         n = sum(1 for q in queries if q.family == fam)
         ft = Table(title=f"Family: {fam}  ({n} queries)")
         ft.add_column("retriever", style="bold")
-        for col in ("recall@5", "recall@10", "recall@20", "ndcg@10", "mrr"):
+        for col in ("recall@10", "recall@20", "precision@10", "ndcg@10", "mrr"):
             ft.add_column(col, justify="right")
         best = {}
-        for col in ("recall@10", "ndcg@10"):
+        for col in ("recall@10", "recall@20", "precision@10", "ndcg@10"):
             best[col] = max(
                 (r["by_family"].get(fam, {}).get(col, 0) for r in results.values()),
                 default=0)
@@ -112,8 +112,8 @@ def print_report(results: dict, queries: list[EvalQuery]) -> None:
                 v = f.get(col, 0)
                 mark = " *" if col in best and v == best[col] and v > 0 else ""
                 return f"{v:.3f}{mark}"
-            ft.add_row(name, fmt("recall@5"), fmt("recall@10"), fmt("recall@20"),
-                       fmt("ndcg@10"), fmt("mrr"))
+            ft.add_row(name, fmt("recall@10"), fmt("recall@20"),
+                       fmt("precision@10"), fmt("ndcg@10"), fmt("mrr"))
         console.print(ft)
     console.print("[dim]* marks the best value in that column.[/]")
 

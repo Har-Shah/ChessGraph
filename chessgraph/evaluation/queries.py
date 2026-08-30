@@ -67,70 +67,108 @@ def _family_of(doc: Document) -> str | None:
 
 
 def build_query_set(docs: list[Document], subject: str, *,
-                    min_relevant: int = 5, max_per_family: int = 8,
+                    min_relevant: int = 5, max_relevant: int = 60,
+                    max_per_family: int = 10,
                     seed: int = 17) -> list[EvalQuery]:
-    """Instantiate query templates against entities that actually have data."""
+    """Instantiate query templates against entities that actually have data.
+
+    RELEVANT SET SIZING
+    Sets are capped to [min_relevant, max_relevant]. This is not cosmetic. With
+    3,790 documents, a predicate like "every mistake in the Sicilian" selects
+    ~300 of them, and Recall@10 is then bounded above by 10/300 = 0.033. The
+    metric cannot move, so it measures nothing. Capping relevant sets near 60
+    keeps Recall@20 able to reach 0.33 and makes the number informative.
+    """
     rng = random.Random(seed)
     subject_lc = subject.lower()
     queries: list[EvalQuery] = []
 
     subject_docs = [d for d in docs if (d.meta.get("player") or "").lower() == subject_lc]
 
-    # ---------------------------------------------------------------- indexes
-    by_family: dict[str, list[Document]] = defaultdict(list)
+    by_opening: dict[str, list[Document]] = defaultdict(list)
     by_theme: dict[str, list[Document]] = defaultdict(list)
     by_opponent: dict[str, list[Document]] = defaultdict(list)
     for d in docs:
-        if fam := _family_of(d):
-            by_family[fam].append(d)
+        if d.meta.get("opening"):
+            by_opening[d.meta["opening"]].append(d)
         for t in d.meta.get("themes", []):
             by_theme[t].append(d)
-    for d in docs:
         player = (d.meta.get("player") or "").lower()
         if player and player != subject_lc:
             by_opponent[player].append(d)
 
+    def sized(rel: set[str]) -> bool:
+        return min_relevant <= len(rel) <= max_relevant
+
     # --------------------------------------------------- A. lexical lookup
-    # Names the opening explicitly. BM25 is expected to do well here.
-    fams = [f for f, ds in by_family.items() if len(ds) >= min_relevant]
-    fams.sort(key=lambda f: -len(by_family[f]))
-    for i, fam in enumerate(fams[:max_per_family]):
-        rel = {d.doc_id for d in by_family[fam]}
+    # Specific opening variations rather than families, both to keep the
+    # relevant set in range and because naming a precise variation is what a
+    # lexical query realistically looks like.
+    opens = [o for o, ds in by_opening.items() if sized({d.doc_id for d in ds})]
+    opens.sort(key=lambda o: -len(by_opening[o]))
+    for i, op in enumerate(opens[:max_per_family]):
+        rel = {d.doc_id for d in by_opening[op]}
         queries.append(EvalQuery(
             qid=f"lex{i}", family="lexical",
-            text=f"blunders and mistakes in the {fam}",
+            text=f"blunders and mistakes in the {op}",
             relevant=rel,
-            description=f"Names the opening family literally. {len(rel)} relevant.",
-            meta={"opening_family": fam},
+            description=f"Names the variation literally. {len(rel)} relevant.",
+            meta={"opening": op, "n_relevant": len(rel)},
         ))
 
-    # ------------------------------------------------ B. paraphrased theme
-    # Never uses the theme label. Tests semantic rather than lexical matching.
-    themes = [t for t, ds in by_theme.items()
-              if len(ds) >= min_relevant and t in THEME_PARAPHRASE]
-    themes.sort(key=lambda t: -len(by_theme[t]))
-    for i, theme in enumerate(themes[:max_per_family]):
-        rel = {d.doc_id for d in by_theme[theme]}
+    # ----------------------------- B/D. paraphrase and thematic, same targets
+    # These two families deliberately share relevance sets and differ only in
+    # how the query is worded. The thematic version names the theme; the
+    # paraphrase version never does. Holding the target fixed isolates lexical
+    # matching from semantic matching, instead of confounding it with a change
+    # in what is being asked for.
+    severe_by_theme_color: dict[tuple[str, str], set[str]] = {}
+    for theme, ds in by_theme.items():
+        for color in ("white", "black"):
+            rel = {d.doc_id for d in ds
+                   if d.meta.get("is_subject_move")
+                   and d.meta.get("color") == color
+                   and (d.meta.get("cp_loss") or 0) >= 200}
+            if sized(rel) and theme in THEME_PARAPHRASE:
+                severe_by_theme_color[(theme, color)] = rel
+
+    ordered = sorted(severe_by_theme_color.items(), key=lambda kv: -len(kv[1]))
+    for i, ((theme, color), rel) in enumerate(ordered[:max_per_family]):
+        label = theme.replace("_", " ")
+        queries.append(EvalQuery(
+            qid=f"them{i}", family="thematic",
+            text=f"my serious {label} mistakes as {color}",
+            relevant=rel,
+            description=f"Names '{theme}' directly. {len(rel)} relevant.",
+            meta={"theme": theme, "color": color, "n_relevant": len(rel)},
+        ))
         queries.append(EvalQuery(
             qid=f"para{i}", family="paraphrase",
-            text=THEME_PARAPHRASE[theme],
+            text=f"as {color}, {THEME_PARAPHRASE[theme]}",
             relevant=rel,
-            description=f"Describes '{theme}' without naming it. {len(rel)} relevant.",
-            meta={"theme": theme},
+            description=(f"Same target as them{i}, but never says '{theme}'. "
+                         f"{len(rel)} relevant."),
+            meta={"theme": theme, "color": color, "n_relevant": len(rel),
+                  "paired_with": f"them{i}"},
         ))
 
     # ------------------------------------------------------ C. relational
-    # The motivating question. Names an opponent and an intent, never the
-    # openings or the positions, which are what the answer consists of.
-    opponents = [(o, ds) for o, ds in by_opponent.items() if len(ds) >= min_relevant]
+    # Relevance is this opponent's mistakes restricted to their SINGLE most
+    # played opening family. Top-1 rather than top-3 because most opponents in
+    # this corpus appear in only two or three families, so a top-3 predicate
+    # selects everything they have and leaves nothing to filter out. With
+    # top-1, the opponent's other games act as distractors, and a retriever
+    # that can only match the username cannot separate them.
+    opponents = [(o, ds) for o, ds in by_opponent.items() if len(ds) >= 8]
     opponents.sort(key=lambda kv: -len(kv[1]))
-    for i, (opp, opp_docs) in enumerate(opponents[:max_per_family]):
-        # Relevance is a genuine two-way join: this opponent's mistakes, AND
-        # only in the opening families they actually play often.
+    for i, (opp, opp_docs) in enumerate(opponents[:max_per_family * 2]):
         fam_counts = Counter(_family_of(d) for d in opp_docs if _family_of(d))
-        top_fams = {f for f, _ in fam_counts.most_common(3)}
-        rel = {d.doc_id for d in opp_docs if _family_of(d) in top_fams}
-        if len(rel) < min_relevant:
+        if len(fam_counts) < 2:
+            continue                      # no distractors, so no join to test
+        top_fam = fam_counts.most_common(1)[0][0]
+        rel = {d.doc_id for d in opp_docs if _family_of(d) == top_fam}
+        distractors = len(opp_docs) - len(rel)
+        if not sized(rel) or distractors < 3:
             continue
         name = opp_docs[0].meta.get("player")
         queries.append(EvalQuery(
@@ -138,45 +176,37 @@ def build_query_set(docs: list[Document], subject: str, *,
             text=(f"Which opening variation should I prepare against {name}, "
                   f"and what recurring mistakes do they make in those positions?"),
             relevant=rel,
-            description=(f"Two-hop join: {name}'s mistakes restricted to their "
-                         f"most-played families {sorted(top_fams)}. {len(rel)} relevant."),
-            meta={"opponent": name, "families": sorted(top_fams)},
+            description=(f"{name}'s mistakes in their most played family "
+                         f"({top_fam}). {len(rel)} relevant, {distractors} "
+                         f"same-opponent distractors."),
+            meta={"opponent": name, "family": top_fam,
+                  "n_relevant": len(rel), "n_distractors": distractors},
         ))
+        if len(queries) > 60:
+            break
 
-    # Same shape aimed at the subject, which always has data even when no
-    # opponent recurs often enough.
+    # Subject-facing relational: a three way join of most played families,
+    # colour and game phase. None of those three are stated as filters in the
+    # question, which is what makes it relational rather than lookup.
     subj_fam_counts = Counter(_family_of(d) for d in subject_docs if _family_of(d))
-    top_subj_fams = {f for f, _ in subj_fam_counts.most_common(5)}
+    top_subj_fams = {f for f, _ in subj_fam_counts.most_common(4)}
     for color in ("white", "black"):
-        rel = {d.doc_id for d in subject_docs
-               if d.meta.get("color") == color and _family_of(d) in top_subj_fams}
-        if len(rel) >= min_relevant:
-            queries.append(EvalQuery(
-                qid=f"relself_{color}", family="relational",
-                text=(f"In the openings I play most often as {color}, "
-                      f"what mistakes do I keep repeating?"),
-                relevant=rel,
-                description=(f"Join of my top-5 families with my {color} mistakes. "
-                             f"{len(rel)} relevant."),
-                meta={"color": color, "families": sorted(top_subj_fams)},
-            ))
-
-    # -------------------------------------------------------- D. thematic
-    # Names the theme and a colour. Both lexical and graph have a route in.
-    for i, theme in enumerate(themes[:max_per_family]):
-        for color in ("white", "black"):
-            rel = {d.doc_id for d in by_theme[theme]
+        for phase in ("middlegame", "endgame"):
+            rel = {d.doc_id for d in subject_docs
                    if d.meta.get("color") == color
-                   and (d.meta.get("player") or "").lower() == subject_lc}
-            if len(rel) < min_relevant:
+                   and d.meta.get("phase") == phase
+                   and _family_of(d) in top_subj_fams}
+            if not sized(rel):
                 continue
-            label = theme.replace("_", " ")
             queries.append(EvalQuery(
-                qid=f"them{i}_{color}", family="thematic",
-                text=f"my recurring {label} problems as {color}",
+                qid=f"relself_{color}_{phase}", family="relational",
+                text=(f"In the openings I play most often as {color}, what do I "
+                      f"keep getting wrong once the {phase} starts?"),
                 relevant=rel,
-                description=f"Subject's {theme} mistakes as {color}. {len(rel)} relevant.",
-                meta={"theme": theme, "color": color},
+                description=(f"Three way join: top-4 families, {color}, {phase}. "
+                             f"{len(rel)} relevant."),
+                meta={"color": color, "phase": phase,
+                      "families": sorted(top_subj_fams), "n_relevant": len(rel)},
             ))
 
     rng.shuffle(queries)
@@ -185,9 +215,12 @@ def build_query_set(docs: list[Document], subject: str, *,
 
 def query_set_stats(queries: list[EvalQuery]) -> dict:
     by_fam = Counter(q.family for q in queries)
+    sizes = sorted(len(q.relevant) for q in queries)
     return {
         "total": len(queries),
         "by_family": dict(by_fam),
-        "avg_relevant": round(
-            sum(len(q.relevant) for q in queries) / max(len(queries), 1), 1),
+        "avg_relevant": round(sum(sizes) / max(len(sizes), 1), 1),
+        "min_relevant": sizes[0] if sizes else 0,
+        "max_relevant": sizes[-1] if sizes else 0,
+        "median_relevant": sizes[len(sizes) // 2] if sizes else 0,
     }
